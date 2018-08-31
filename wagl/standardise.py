@@ -29,9 +29,7 @@ from wagl.terrain_shadow_masks import combine_shadow_masks
 from wagl.slope_aspect import slope_aspect_arrays
 from wagl.temperature import surface_brightness_temperature
 from wagl.pq import can_pq, run_pq
-
-LOG = wrap_logger(logging.getLogger('status'),
-                  processors=[JSONRenderer(indent=1, sort_keys=True)])
+from wagl.logging import ERROR_LOGGER, STATUS_LOGGER
 
 
 # pylint disable=too-many-arguments
@@ -173,8 +171,8 @@ def card4l(level1, granule, workflow, vertices, method, pixel_quality, landsea,
         fid.attrs['level1_uri'] = level1
 
         for grp_name in container.supported_groups:
-            log = LOG.bind(level1=container.label, granule=granule,
-                           granule_group=grp_name)
+            log = STATUS_LOGGER.bind(level1=container.label, granule=granule,
+                                     granule_group=grp_name)
 
             # root group for a given granule and resolution group
             root = fid.create_group(ppjoin(granule, grp_name))
@@ -189,7 +187,7 @@ def card4l(level1, granule, workflow, vertices, method, pixel_quality, landsea,
             calculate_angles(acqs[0], root[GroupName.LON_LAT_GROUP.value],
                              root, compression, filter_opts, tle_path)
 
-            if workflow == Workflow.STANDARD or workflow == Workflow.NBAR:
+            if workflow in (Workflow.STANDARD, Workflow.NBAR):
 
                 # DEM
                 log.info('DEM-retriveal')
@@ -252,8 +250,8 @@ def card4l(level1, granule, workflow, vertices, method, pixel_quality, landsea,
                                      root, compression, filter_opts)
 
         # nbar and sbt ancillary
-        log = LOG.bind(level1=container.label, granule=granule,
-                       granule_group=None)
+        log = STATUS_LOGGER.bind(level1=container.label, granule=granule,
+                                 granule_group=None)
 
         # granule root group
         root = fid[granule]
@@ -271,6 +269,14 @@ def card4l(level1, granule, workflow, vertices, method, pixel_quality, landsea,
                       'dem_path': dem_path,
                       'brdf_path': brdf_path,
                       'brdf_premodis_path': brdf_premodis_path}
+
+        if AP.SBT in workflow.ard_products:
+            if not any(acq.band_type == BandType.THERMAL
+                           for acq in grn_con.get_all_acquisitions()):
+                ERROR_LOGGER.error("No thermal bands available for processing")
+                # ecmwf_path determines whether sbt ancillaries are collected
+                ecmwf_path = None
+
         collect_ancillary(grn_con, res_group[GroupName.SAT_SOL_GROUP.value],
                           nbar_paths, ecmwf_path, invariant_fname,
                           vertices, root, compression, filter_opts)
@@ -318,8 +324,8 @@ def card4l(level1, granule, workflow, vertices, method, pixel_quality, landsea,
 
         # interpolate coefficients
         for grp_name in container.supported_groups:
-            log = LOG.bind(level1=container.label, granule=granule,
-                           granule_group=grp_name)
+            log = STATUS_LOGGER.bind(level1=container.label, granule=granule,
+                                     granule_group=grp_name)
             log.info('Interpolation')
 
             # acquisitions and available bands for the current group level

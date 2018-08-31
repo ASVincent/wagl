@@ -34,11 +34,7 @@ from wagl.acquisition import acquisitions
 from wagl.constants import Workflow, Method
 from wagl.hdf5 import H5CompressionFilter
 from wagl.standardise import card4l
-
-
-ERROR_LOGGER = wrap_logger(logging.getLogger('errors'),
-                           processors=[JSONRenderer(indent=1, sort_keys=True)])
-INTERFACE_LOGGER = logging.getLogger('luigi-interface')
+from wagl.logging import ERROR_LOGGER, INTERFACE_LOGGER
 
 
 @luigi.Task.event_handler(luigi.Event.FAILURE)
@@ -85,6 +81,18 @@ class DataStandardisation(luigi.Task):
     buffer_distance = luigi.FloatParameter(default=8000, significant=False)
     h5_driver = luigi.OptionalParameter(default='', significant=False)
 
+    def _validate_cfg(self):
+        """ Validates configuration dependencies """
+
+        # ecwmf_path is required to generate thermal products
+        if self.workflow == Workflow.SBT:
+            assert self.ecmwf_path is not None
+
+    def requires(self):
+        """ Use the requires method to trigger config validation """
+        self._validate_cfg()
+        return None  # No dependencies
+
     def output(self):
         fmt = '{label}.wagl.h5'
         label = self.granule if self.granule else basename(self.level1)
@@ -93,11 +101,6 @@ class DataStandardisation(luigi.Task):
         return luigi.LocalTarget(pjoin(self.outdir, out_fname))
 
     def run(self):
-        if self.workflow == Workflow.STANDARD or self.workflow == Workflow.SBT:
-            ecmwf_path = self.ecmwf_path
-        else:
-            ecmwf_path = None
-
         with self.output().temporary_path() as out_fname:
             card4l(self.level1, self.granule, self.workflow, self.vertices,
                    self.method, self.pixel_quality, self.land_sea_path,

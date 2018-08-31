@@ -45,7 +45,7 @@ from wagl.reflectance import _calculate_reflectance, link_standard_data
 from wagl.terrain_shadow_masks import _self_shadow, _calculate_cast_shadow
 from wagl.terrain_shadow_masks import _combine_shadow
 from wagl.slope_aspect import _slope_aspect_arrays
-from wagl.constants import Workflow, BandType, Method, AtmosphericCoefficients
+from wagl.constants import Workflow, BandType, Method, AtmosphericCoefficients, ArdProducts as AP
 from wagl.constants import POINT_FMT, ALBEDO_FMT, POINT_ALBEDO_FMT, Albedos
 from wagl.dsm import _get_dsm
 from wagl.modtran import _format_tp5, _run_modtran
@@ -55,10 +55,7 @@ from wagl.interpolation import _interpolate, link_interpolated_data
 from wagl.temperature import _surface_brightness_temperature
 from wagl.pq import can_pq, _run_pq
 from wagl.hdf5 import create_external_link, H5CompressionFilter
-
-
-ERROR_LOGGER = wrap_logger(logging.getLogger('errors'),
-                           processors=[JSONRenderer(indent=1, sort_keys=True)])
+from wagl.logging import ERROR_LOGGER
 
 
 @luigi.Task.event_handler(luigi.Event.FAILURE)
@@ -184,8 +181,16 @@ class AncillaryData(luigi.Task):
                                       significant=False)
     filter_opts = luigi.DictParameter(default=None, significant=False)
 
+    def _validate_cfg(self):
+        # ecwmf_path is required to generate thermal products
+        if self.workflow == Workflow.SBT:
+            assert self.ecmwf_path is not None
+
+
     def requires(self):
         group = acquisitions(self.level1, self.acq_parser_hint).supported_groups[0]
+        self._validate_cfg()
+
         args = [self.level1, self.work_root, self.granule, group]
         return CalculateSatelliteAndSolarGrids(*args)
 
@@ -195,7 +200,6 @@ class AncillaryData(luigi.Task):
     def run(self):
         container = acquisitions(self.level1, self.acq_parser_hint)
         grn = container.get_granule(granule=self.granule, container=True)
-        sbt_path = None
 
         nbar_paths = {'aerosol_dict': self.aerosol,
                       'water_vapour_dict': self.water_vapour,
@@ -204,11 +208,16 @@ class AncillaryData(luigi.Task):
                       'brdf_path': self.brdf_path,
                       'brdf_premodis_path': self.brdf_premodis_path}
 
-        if self.workflow == Workflow.STANDARD or self.workflow == Workflow.SBT:
-            sbt_path = self.ecmwf_path
+        ecmwf_path = self.ecmwf_path
+        if AP.SBT in self.workflow.ard_products:
+            if not any(acq.band_type == BandType.THERMAL
+                           for acq in grn.get_all_acquisitions()):
+                ERROR_LOGGER.error("No thermal bands available for processing")
+                # ecmwf_path determines whether sbt ancillaries are collected
+                ecmwf_path = None
 
         with self.output().temporary_path() as out_fname:
-            _collect_ancillary(grn, self.input().path, nbar_paths, sbt_path,
+            _collect_ancillary(grn, self.input().path, nbar_paths, ecmwf_path,
                                self.invariant_height_fname, self.vertices,
                                out_fname, self.compression, self.filter_opts)
 

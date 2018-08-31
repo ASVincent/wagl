@@ -160,20 +160,19 @@ def format_tp5(acquisitions, ancillary_group, satellite_solar_group,
 
     tp5_data = {}
 
+    r_acq = next((acq for acq in acquisitions if a.band_type is BandType.REFLECTIVE), None)
     # setup the tp5 files required by MODTRAN
-    if workflow == Workflow.STANDARD or workflow == Workflow.NBAR:
-        acqs = [a for a in acquisitions if a.band_type == BandType.REFLECTIVE]
-
+    if workflow in (Workflow.STANDARD, Workflow.NBAR) and r_acq:
         for p in range(npoints):
             for alb in Workflow.NBAR.albedos:
                 input_data = {'water': water_vapour,
                               'ozone': ozone,
-                              'filter_function': acqs[0].spectral_filter_file,
+                              'filter_function': r_acq.spectral_filter_file,
                               'visibility': -aerosol,
                               'elevation': elevation,
-                              'sat_height': acquisitions[0].altitude / 1000.0,
+                              'sat_height': r_acq.altitude / 1000.0,
                               'sat_view': view_corrected[p],
-                              'doy': acquisitions[0].julian_day(),
+                              'doy': r_acq.julian_day(),
                               'binary': 'T'}
                 if alb == Albedos.ALBEDO_T:
                     input_data['albedo'] = 0.0
@@ -183,7 +182,7 @@ def format_tp5(acquisitions, ancillary_group, satellite_solar_group,
                     input_data['albedo'] = float(alb.value)
                     input_data['lat'] = lat[p]
                     input_data['lon'] = rlon[p]
-                    input_data['time'] = acquisitions[0].decimal_hour()
+                    input_data['time'] = r_acq.decimal_hour()
                     input_data['sat_azimuth'] = azi_corrected[p]
                     data = albedo_profile.format(**input_data)
 
@@ -194,10 +193,11 @@ def format_tp5(acquisitions, ancillary_group, satellite_solar_group,
                                DatasetName.TP5.value)
                 write_scalar(numpy.string_(data), dname, group, input_data)
 
+    t_acq = next((acq for acq in acquisitions if a.band_type is BandType.REFLECTIVE), None)
+
     # create tp5 for sbt if it has been collected
-    if ancillary_group.attrs.get('sbt-ancillary'):
+    if AP.SBT in workflow.ard_products and t_acq and ancillary_group.attrs.get('sbt-ancillary'):
         dname = ppjoin(POINT_FMT, DatasetName.ATMOSPHERIC_PROFILE.value)
-        acqs = [a for a in acquisitions if a.band_type == BandType.THERMAL]
 
         for p in range(npoints):
             atmospheric_profile = []
@@ -214,11 +214,11 @@ def format_tp5(acquisitions, ancillary_group, satellite_solar_group,
                 atmospheric_profile.append(SBT_FORMAT.format(**input_data))
 
             input_data = {'ozone': ozone,
-                          'filter_function': acqs[0].spectral_filter_file,
+                          'filter_function': t_acq.spectral_filter_file,
                           'visibility': -aerosol,
                           'gpheight': elevation,
                           'n': n_layers,
-                          'sat_height': acquisitions[0].altitude / 1000.0,
+                          'sat_height': t_acq.altitude / 1000.0,
                           'sat_view': view_corrected[p],
                           'binary': 'T',
                           'atmospheric_profile': ''.join(atmospheric_profile)}
