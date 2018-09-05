@@ -318,7 +318,7 @@ class AtmosphericsCase(luigi.Task):
         with self.output().temporary_path() as out_fname:
             nvertices = self.vertices[0] * self.vertices[1]
             _run_modtran(acqs, self.modtran_exe, base_dir, self.point, albedos,
-                         self.workflow, nvertices, atmospheric_inputs_fname,
+                         nvertices, atmospheric_inputs_fname,
                          out_fname, self.compression, self.filter_opts)
 
 
@@ -333,6 +333,7 @@ class Atmospherics(luigi.Task):
     separate = luigi.BoolParameter()
 
     def requires(self):
+        """ Determination of which albedos to process requires understanding the configured bands """
         args = [self.level1, self.work_root, self.granule, self.vertices]
         for point in range(self.vertices[0] * self.vertices[1]):
             kwargs = {'point': point, 'workflow': self.workflow}

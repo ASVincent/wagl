@@ -107,7 +107,7 @@ class DataStandardisation(luigi.Task):
                    self.tle_path, self.aerosol, self.brdf_path,
                    self.brdf_premodis_path, self.ozone_path, self.water_vapour,
                    self.dem_path, self.dsm_fname, self.invariant_height_fname,
-                   self.modtran_exe, out_fname, ecmwf_path, self.rori,
+                   self.modtran_exe, out_fname, self.ecmwf_path, self.rori,
                    self.buffer_distance, self.compression, self.filter_opts,
                    self.h5_driver, self.acq_parser_hint)
 

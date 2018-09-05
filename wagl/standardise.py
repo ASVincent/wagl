@@ -313,7 +313,7 @@ def card4l(level1, granule, workflow, vertices, method, pixel_quality, landsea,
                 with open(fname, 'w') as src:
                     src.writelines(tp5_data[key])
 
-                run_modtran(acqs, inputs_grp, workflow, nvertices, point,
+                run_modtran(acqs, inputs_grp, vertices, point,
                             [albedo], modtran_exe, tmpdir, root, compression,
                             filter_opts)
 

@@ -20,7 +20,7 @@ import pandas as pd
 
 from wagl.constants import Workflow, BandType, DatasetName, GroupName, Albedos
 from wagl.constants import POINT_FMT, ALBEDO_FMT, POINT_ALBEDO_FMT
-from wagl.constants import AtmosphericCoefficients as AC
+from wagl.constants import AtmosphericCoefficients as AC, ArdProducts as AP
 from wagl.hdf5 import write_dataframe, read_h5_table, create_external_link
 from wagl.hdf5 import VLEN_STRING, write_scalar, H5CompressionFilter
 from wagl.modtran_profiles import MIDLAT_SUMMER_ALBEDO, TROPICAL_ALBEDO
@@ -160,7 +160,7 @@ def format_tp5(acquisitions, ancillary_group, satellite_solar_group,
 
     tp5_data = {}
 
-    r_acq = next((acq for acq in acquisitions if a.band_type is BandType.REFLECTIVE), None)
+    r_acq = next((acq for acq in acquisitions if acq.band_type is BandType.REFLECTIVE), None)
     # setup the tp5 files required by MODTRAN
     if workflow in (Workflow.STANDARD, Workflow.NBAR) and r_acq:
         for p in range(npoints):
@@ -193,7 +193,7 @@ def format_tp5(acquisitions, ancillary_group, satellite_solar_group,
                                DatasetName.TP5.value)
                 write_scalar(numpy.string_(data), dname, group, input_data)
 
-    t_acq = next((acq for acq in acquisitions if a.band_type is BandType.REFLECTIVE), None)
+    t_acq = next((acq for acq in acquisitions if acq.band_type is BandType.REFLECTIVE), None)
 
     # create tp5 for sbt if it has been collected
     if AP.SBT in workflow.ard_products and t_acq and ancillary_group.attrs.get('sbt-ancillary'):
@@ -238,7 +238,7 @@ def format_tp5(acquisitions, ancillary_group, satellite_solar_group,
     return tp5_data, out_group
 
 
-def _run_modtran(acquisitions, modtran_exe, basedir, point, albedos, workflow,
+def _run_modtran(acquisitions, modtran_exe, basedir, point, albedos,
                  npoints, atmospheric_inputs_fname, out_fname,
                  compression=H5CompressionFilter.LZF, filter_opts=None):
     """
@@ -249,11 +249,11 @@ def _run_modtran(acquisitions, modtran_exe, basedir, point, albedos, workflow,
         h5py.File(out_fname, 'w') as fid:
 
         atmos_grp = atmos_fid[GroupName.ATMOSPHERIC_INPUTS_GRP.value]
-        run_modtran(acquisitions, atmos_grp, workflow, npoints, point, albedos,
+        run_modtran(acquisitions, atmos_grp, npoints, point, albedos,
                     modtran_exe, basedir, fid, compression, filter_opts)
 
 
-def run_modtran(acquisitions, atmospherics_group, workflow, npoints, point,
+def run_modtran(acquisitions, atmospherics_group, npoints, point,
                 albedos, modtran_exe, basedir, out_group,
                 compression=H5CompressionFilter.LZF, filter_opts=None):
     """
@@ -282,10 +282,14 @@ def run_modtran(acquisitions, atmospherics_group, workflow, npoints, point,
         fid.create_group(group_name)
 
     fid[group_name].attrs['npoints'] = npoints
-    applied = workflow == Workflow.STANDARD or workflow == Workflow.NBAR
-    fid[group_name].attrs['nbar_atmospherics'] = applied
-    applied = workflow == Workflow.STANDARD or workflow == Workflow.SBT
-    fid[group_name].attrs['sbt_atmospherics'] = applied
+
+    # Using transmissive albedo as a canary for reflective processing
+    if Albedos.ALBEDO_T in albedos:
+        fid[group_name].attrs['nbar_atmospherics'] = applied
+
+    # Mark dataset as have thermal if configured
+    if Albedos.ALBEDO_TH in albedos:
+        fid[group_name].attrs['sbt_atmospherics'] = applied
 
     acqs = acquisitions
     for albedo in albedos:
@@ -364,7 +368,7 @@ def run_modtran(acquisitions, atmospherics_group, workflow, npoints, point,
                             attrs=attrs, filter_opts=filter_opts)
 
     # metadata for a given point
-    alb_vals = [alb.value for alb in workflow.albedos]
+    alb_vals = [alb.value for alb in albedos]
     fid[base_path].attrs['lonlat'] = lonlat
     fid[base_path].attrs['datetime'] = acqs[0].acquisition_datetime.isoformat()
     fid[base_path].attrs.create('albedos', data=alb_vals, dtype=VLEN_STRING)
@@ -972,8 +976,9 @@ def link_atmospheric_results(input_targets, out_fname, npoints, workflow):
     base_group_name = GroupName.ATMOSPHERIC_RESULTS_GRP.value
     nbar_atmospherics = False
     sbt_atmospherics = False
-    attributes = []
+    target_attributes = {}
     for fname in input_targets:
+        target_attributes[fname.path] = []
         with h5py.File(fname.path, 'r') as fid:
             points = list(fid[base_group_name].keys())
 
@@ -982,13 +987,15 @@ def link_atmospheric_results(input_targets, out_fname, npoints, workflow):
             # which will create the required parent Groups
             for point in points:
                 group = ppjoin(base_group_name, point)
-                attributes.append((point,
-                                   fid[group].attrs['lonlat'],
-                                   fid[group].attrs['datetime'],
-                                   fid[group].attrs['albedos']))
+                target_attributes[fname.path].append({
+                    'point': point,
+                    'lonlat': fid[group].attrs['lonlat'], 
+                    'datetime': fid[group].attrs['datetime'],
+                    'albedos': fid[group].attrs['albedos']  # TODO is this a string?
+                })
                 
-        for point in points:
-            for albedo in workflow.albedos:
+        for pt_data in target_attributes[fname.path].values():
+            for albedo in pt_data['albedos']:
                 if albedo == Albedos.ALBEDO_TH:
                     datasets = [DatasetName.UPWARD_RADIATION_CHANNEL.value,
                                 DatasetName.DOWNWARD_RADIATION_CHANNEL.value]
@@ -1000,8 +1007,8 @@ def link_atmospheric_results(input_targets, out_fname, npoints, workflow):
                                 DatasetName.CHANNEL.value]
                     nbar_atmospherics = True
 
-                grp_path = ppjoin(base_group_name, point,
-                                  ALBEDO_FMT.format(a=albedo.value))
+                grp_path = ppjoin(base_group_name, pt_data['point'],
+                                  ALBEDO_FMT.format(a=albedo))
 
                 for dset in datasets:
                     dname = ppjoin(grp_path, dset)
@@ -1014,8 +1021,9 @@ def link_atmospheric_results(input_targets, out_fname, npoints, workflow):
         group.attrs['sbt_atmospherics'] = sbt_atmospherics
 
         # assign the lonlat attribute for each POINT Group
-        for point, lonlat, date_time, albedos in attributes:
-            group[point].attrs['lonlat'] = lonlat
-            group[point].attrs['datetime'] = date_time
-            group[point].attrs.create('albedos', data=albedos,
-                                      dtype=VLEN_STRING)
+        for input_attrs in target_attributes.values():
+            for point in input_attrs:
+                group[input_attrs['point']].attrs['lonlat'] = input_attrs['lonlat']
+                group[input_attrs['point']].attrs['datetime'] = input_attrs['datetime']
+                group[input_attrs['point']].attrs.create(
+                    'albedos', data=input_attrs['albedos'], dtype=VLEN_STRING)
