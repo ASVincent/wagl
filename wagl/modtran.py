@@ -28,7 +28,7 @@ import wagl.modtran_profile_json as mpjson
 class JsonEncoder(json.JSONEncoder):
     """
     A wrapper class to address the issue of json encoding error
-    This class handles  the json serializing error for numpy
+    This class handles the json serializing error for numpy
     datatype: 'float32' and numpy arrays
     """
     def default(self, obj):
@@ -311,8 +311,7 @@ def run_modtran(acquisitions, atmospherics_group, workflow, npoints, point,
 
         chn_fname = glob.glob(pjoin(workpath, '*.chn'))[0]
         tp6_fname = glob.glob(pjoin(workpath,'*.tp6'))[0]
-
-
+        
         if albedo == Albedos.ALBEDO_TH:
             acq = [acq for acq in acqs if acq.band_type == BandType.THERMAL][0]
 
@@ -341,13 +340,6 @@ def run_modtran(acquisitions, atmospherics_group, workflow, npoints, point,
             # Will require updating to handle JSON output from modtran
             channel_data = read_modtran_channel(chn_fname, tp6_fname, acq, albedo)
 
-            attrs = base_attrs.copy()
-            dataset_name = DatasetName.CHANNEL.value
-            attrs['description'] = 'Channel output from MODTRAN'
-            dset_name = ppjoin(group_path, dataset_name)
-            write_dataframe(channel_data[0], dset_name, fid, compression,
-                            attrs=attrs, filter_opts=filter_opts)
-
             # solar zenith angle at surface
             attrs = base_attrs.copy()
             dataset_name = DatasetName.SOLAR_ZENITH_CHANNEL.value
@@ -355,6 +347,13 @@ def run_modtran(acquisitions, atmospherics_group, workflow, npoints, point,
             dset_name = ppjoin(group_path, dataset_name)
             write_dataframe(channel_data[1], dset_name, fid, compression,
                             attrs=attrs, filter_opts=filter_opts)
+
+            # solar zenith angle at surface
+            attrs = base_attrs.copy()
+            dataset_name = DatasetName.SOLAR_ZENITH_CHANNEL.value
+            attrs['description'] = 'Solar zenith angle at different atmosphere levels'
+            dset_name = ppjoin(group_path, dataset_name)
+            write_dataframe(channel_data[1], dset_name, fid, compression, attrs=attrs, filter_opts=filter_opts)
 
     # metadata for a given point
     alb_vals = [alb.value for alb in workflow.albedos]
@@ -583,7 +582,7 @@ def coefficients(channel_data=None, solar_zenith_angle=None,
         nbar[AC.DIR.value] = E0_cozen * ts * 10000000
         nbar[AC.DIF.value] = (Ts - ts) * E0_cozen * 10000000
         nbar[AC.TS.value] = ts
-
+        
     if upward_radiation is not None:
         columns = [v.value for v in Workflow.SBT.atmos_coefficients]
         columns.extend(['TRANSMITTANCE-DOWN']) # Currently not required
@@ -723,7 +722,7 @@ def read_modtran_channel(chn_fname, tp6_fname, acquisition, albedo):
     :param chn_fname:
         A `str` containing the full file pathname of the channel
         data file.
-
+    
     :param tp6_fname:
         A 'str' containing the full file pathname of the tp6
         data file.
@@ -763,7 +762,7 @@ def read_modtran_channel(chn_fname, tp6_fname, acquisition, albedo):
 
         return upward_radiation, downward_radiation
 
-    #get solar zenith angle at all layers from *.tp6 file
+    # get solar zenith angle at all layers from *.tp6 file
     solar_zenith = _get_solar_angles(tp6_fname)
     df_sz_angle = pd.DataFrame()
     df_sz_angle['solar_zenith'] = solar_zenith
