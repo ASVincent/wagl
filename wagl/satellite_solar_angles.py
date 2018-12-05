@@ -217,16 +217,25 @@ def track_bisection(acquisition, npoints, first_row, last_row):
     # special handling if the satellite track does not intersect both ends
     # of the raster
     track_end_rows = set(first_and_last(npoints))
-    partial_track = track_end_rows - {0, rows-1, -1}
+
+    # NB: There is a known issue where the track intersects in only
+    #     the first and/or last column. This issue will be fixed with
+    #     an improved method for calculating the satellite solar angles
+    track_row_values = track-end_rows - {0, rows-1, -1}
+    track_col_values = {first_row, last_row} - {0, cols-1, -1}
+
     row_bisection = rows // 2
-    if -1 in track_end_rows: # track doesn't intersect raster
+    if not track_row_values or not track_col_values:
+        # no valid track in raster
         column_bisection = cols // 2
         intersection = TrackIntersection.EMPTY
-    elif partial_track: # track intersects only part of raster
-        column_bisection = ({first_row, last_row} - {0, cols-1, -1}).pop()
-        row_bisection = partial_track.pop()
+    elif len(track_row_values) == 1:
+        # track intersects only part of raster
+        column_bisection = track_col_values.pop()
+        row_bisection = track_row_vaules.pop()
         intersection = TrackIntersection.PARTIAL
-    else: # track fully available for deference
+    else:
+        # track fully available for deference
         column_bisection = None
         intersection = TrackIntersection.FULL
 
