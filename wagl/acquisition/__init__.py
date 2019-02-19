@@ -10,7 +10,7 @@ for handling scenes consisting of multiple Granules/Tiles,
 and of differing resolutions.
 """
 from __future__ import absolute_import, print_function
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 import os
 from os.path import isdir, join as pjoin, dirname, basename, splitext, isfile
 import re
@@ -33,6 +33,9 @@ from ..mtl import load_mtl
 
 # resolution group format
 RESG_FMT = "RES-GROUP-{}"
+
+WRS2SpatialRef = namedtuple('PathRow', ['path', 'row'])
+MRGSSpatialRef = namedtuple('MRGS', ['utm', 'zone_square'])
 
 
 with open(pjoin(dirname(__file__), 'sensors.json')) as fo:
@@ -162,6 +165,11 @@ def acquisitions_via_mtl(pathname):
     if sensor_id == 'ETM':
         sensor_id = 'ETM+'
 
+    path_row = MTLSpatialRef(
+        prod_md['wrs_path'],
+        prod_md['wrs_row']
+    )
+
     # get the appropriate landsat acquisition class
     try:
         acqtype = ACQUISITION_TYPE['_'.join([platform_id, sensor_id])]
@@ -209,6 +217,8 @@ def acquisitions_via_mtl(pathname):
                                  quant_md['quantize_cal_min_{}'.format(band)])
         max_quant = quant_md.get('qcalmax_{}'.format(band),
                                  quant_md['quantize_cal_max_{}'.format(band)])
+
+        attrs['spatial_ref'] = path_row
 
         # metadata
         attrs = {k: v for k, v in sensor_band_info.items()}
@@ -309,6 +319,13 @@ def acquisitions_s2_sinergise(pathname):
         # assume it is S2B
         acqtype = Sentinel2bSinergiseAcquisition
 
+    # Extract MGRS coordinates from granule id
+    mgrs_components = re.match(
+        r'.*T(?P<utm>\d{2})(?P<zone_square>[A-Z]{3})_N\d{2}\.\d{2}',
+        granule_id
+    ).group_dict()
+    spatial_ref = MRGSSpatialRef(**mgrs_components)
+
     acqs = []
     for band_id in band_configurations:
 
@@ -325,6 +342,7 @@ def acquisitions_s2_sinergise(pathname):
             continue
 
         attrs = {k: v for k, v in band_configurations[band_id].items()}
+        attrs['spatial_ref'] = spatial_ref
         if attrs.get('supported_band'):
             attrs['solar_irradiance'] = acquisition_data['solar_irradiance_list'][band_id]
             attrs['d2'] = 1 / acquisition_data['u']
@@ -457,6 +475,11 @@ def acquisitions_via_safe(pathname):
         # acquisition centre datetime
         search_term = './*/SENSING_TIME'
         acq_time = parser.parse(granule_root.findall(search_term)[0].text)
+        mgrs_components = re.match(
+            r'.*T(?P<utm>\d{2})(?P<zone_square>[A-Z]{3})_N\d{2}\.\d{2}',
+            granule_id
+        ).group_dict()
+        spatial_ref = MRGSSpatialRef(**mgrs_components)
 
         acqs = []
         for image in images:
@@ -469,6 +492,7 @@ def acquisitions_via_safe(pathname):
             # band info stored in sensors.json
             sensor_band_info = band_configurations.get(band_id)
             attrs = {k: v for k, v in sensor_band_info.items()}
+            attrs['spatial_ref'] = spatial_ref
 
             # image attributes/metadata
             if sensor_band_info.get('supported_band'):
